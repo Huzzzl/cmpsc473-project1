@@ -1,0 +1,6 @@
+# C compiler generated files
+*.o
+cmpsc473-p1
+
+# student-generated output files
+./output*.txt
