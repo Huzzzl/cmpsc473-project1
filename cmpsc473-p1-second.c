@@ -96,7 +96,19 @@ int init_second( FILE *fp )
 int replace_second( unsigned int *victim, frame_t **frame, ptentry_t **ptentry )
 {
   /* Task 3(a) */ 
-  
+  second_entry_t *current = page_list->first;
+  while (current->ptentry->ref == 1){
+    current->ptentry->ref = 0;
+    current = current->next;
+  }
+  *victim = current->pid;
+  *ptentry = current->ptentry;
+  unsigned int fnum = current->ptentry->frame;
+  *frame = &physical_mem[fnum];
+  current->next->prev = current->prev;
+  current->prev->next = current->next;
+  page_list->first = current->next;
+  free(current);
   return 0;
 }
 
@@ -114,7 +126,21 @@ int replace_second( unsigned int *victim, frame_t **frame, ptentry_t **ptentry )
 int update_second( unsigned int pid, ptentry_t *ptentry )
 {
   /* Task #3(a) */
-
+  second_entry_t *appender = ( second_entry_t *)malloc(sizeof(second_entry_t));;
+  appender->pid = pid;
+  appender->ptentry = ptentry;
+  if (page_list->first){
+    second_entry_t *last = page_list->first->prev;
+    last->next = appender;
+    appender->prev = last;
+    page_list->first->prev = appender;
+    appender->next = page_list->first;
+  }
+  else{
+    page_list->first = appender;
+    appender->next = appender;
+    appender->prev = appender;
+  }
   return 0;  
 }
 

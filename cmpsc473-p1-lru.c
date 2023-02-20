@@ -97,7 +97,50 @@ int init_lru( FILE *fp )
 int replace_lru( unsigned int *victim, frame_t **frame, ptentry_t **ptentry )
 {
   /* Task 3(b) */
-  
+  lru_entry_t *current = frame_list->first;
+  unsigned int fnum = frame_list->first->ptentry->frame;
+  frame_t *f = &physical_mem[fnum];
+  lru_entry_t *min = frame_list->first;
+  unsigned int minlru = f->lru;
+  while (TRUE){
+    if (current->ptentry->ref){
+      f->lru = f->lru >> 1;
+      f->lru = f->lru + 4;
+      current->ptentry->ref = 0;
+    }
+    else{
+      f->lru = f->lru >> 1;
+    }
+    if (current->next == frame_list->first){
+      break;
+    }
+    current = current->next;
+    fnum = current->ptentry->frame;
+    f = &physical_mem[fnum];
+  }
+  current = frame_list->first;
+  fnum = current->ptentry->frame;
+  f = &physical_mem[fnum];
+  while (TRUE){
+    if (f->lru < minlru){
+      minlru = f->lru;
+      min = current;
+    }
+    if (current->next == frame_list->first){
+      break;
+    }
+    current = current->next;
+    fnum = current->ptentry->frame;
+    f = &physical_mem[fnum];
+  }
+  *victim = min->pid;
+  *ptentry = min->ptentry;
+  fnum = min->ptentry->frame;
+  *frame = &physical_mem[fnum];
+  min->next->prev = min->prev;
+  min->prev->next = min->next;
+  frame_list->first = min->next;
+  free(min);
   return 0;
 }
 
@@ -115,7 +158,25 @@ int replace_lru( unsigned int *victim, frame_t **frame, ptentry_t **ptentry )
 int update_lru( unsigned int pid, ptentry_t *ptentry)
 {
   /* Task 3(b) */
-  
+  lru_entry_t *appender = ( lru_entry_t *)malloc(sizeof(lru_entry_t));;
+  appender->pid = pid;
+  appender->ptentry = ptentry;
+  unsigned int fnum = ptentry->frame;
+  frame_t *f = &physical_mem[fnum];
+  ptentry->ref = 0;
+  f->lru = 4;
+  if (frame_list->first){
+    lru_entry_t *last = frame_list->first->prev;
+    last->next = appender;
+    appender->prev = last;
+    frame_list->first->prev = appender;
+    appender->next = frame_list->first;
+  }
+  else{
+    frame_list->first = appender;
+    appender->next = appender;
+    appender->prev = appender;
+  }
   return 0;  
 }
 

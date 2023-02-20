@@ -297,6 +297,7 @@ int command_loop( FILE *in, unsigned int mech )
   char op_string[LINE_SIZE];
   size_t len = 0;
   int nread;
+  int err = 0;
 
   /* get memory access */
   while (( nread = getline( &input, &len, in )) >= 0 ) {
@@ -326,13 +327,13 @@ int command_loop( FILE *in, unsigned int mech )
 
       /**** Address Translation ****/
       /* lookup mapping in TLB */
-      if ( tlb_resolve_addr( vaddr, &paddr, op )) {  
-	fprintf( out, "th %d 0x%x 0x%x\n", pid, vaddr, paddr );  // TLB hit
+      if (( err = tlb_resolve_addr( vaddr, &paddr, op ))) {  
+        if ( err > 0 ) fprintf( out, "th %d 0x%x 0x%x\n", pid, vaddr, paddr );  // TLB hit
       }
       else {  
 	/* if miss, lookup in pt */
-	if ( pt_resolve_addr( vaddr, &paddr, op ) ){
-	  fprintf(out, "ph %d 0x%x 0x%x\n", pid, vaddr, paddr);	 // PT hit
+	if (( err = pt_resolve_addr( vaddr, &paddr, op )) ) {
+    if ( err > 0 ) fprintf(out, "ph %d 0x%x 0x%x\n", pid, vaddr, paddr); // PT hit
 	  /* collect number of pt accesses */
 	  memory_accesses++;  // page table hit count
 	}
@@ -423,8 +424,23 @@ int tlb_flush( void )
 int tlb_resolve_addr( unsigned int vaddr, unsigned int *paddr, unsigned int op )
 {
   /* Task #2(a) */
-
-  return 0;  /* miss */
+  unsigned int i;
+  unsigned int page = ( vaddr / PAGE_SIZE );
+  unsigned int offset = vaddr & 0xFFF;
+  ptentry_t *ptentry = PAGE_TO_PTENTRY( page );
+  unsigned int frame = ptentry->frame;
+  int hit = 0;
+  for ( i = 0; i < TLB_ENTRIES; i++ ){
+    if ((tlb[i].frame == frame) && (tlb[i].page == page)){
+      hit = 1;
+      if (( ptentry->page != 0 ) && ( ptentry->op < op )) {
+        protection_fault( vaddr, op );
+        return -1;
+      }
+      *paddr = (frame << 12) + offset; 
+    }
+  }
+  return hit;  /* miss */
 }
 
 /**********************************************************************
@@ -495,8 +511,14 @@ ptentry_t *PAGE_TO_PTENTRY( unsigned int page )
   pdentry_t *pdentry;/* Page directory entry - corresponds to current process/pt */
 
   /* Task #1(a): Map a page number to a page table entry in two-level page table */
-    
-  return (ptentry_t *)NULL;   /* &pdentry->pte_page[vpn]; */
+  dir =  page >> 10;
+  vpn =  page & 0x3FF;
+  pdentry = &current_pt[dir];
+  if (current_pt[dir].pte_page == NULL){
+    posix_memalign( (void **)&current_pt[dir].pte_page, sizeof(ptentry_t)*PAGE_DIR_SIZE, sizeof(ptentry_t)*PAGE_DIR_SIZE);
+    memset(current_pt[dir].pte_page,0,sizeof(ptentry_t)*PAGE_DIR_SIZE);
+  }
+  return &pdentry->pte_page[vpn];   /* &pdentry->pte_page[vpn]; */
 }   
 
 
@@ -515,8 +537,20 @@ ptentry_t *PAGE_TO_PTENTRY( unsigned int page )
 int pt_resolve_addr( unsigned int vaddr, unsigned int *paddr, unsigned int op )
 {
   /* Task #2(b) */
-
-  return 0;
+  unsigned int page = ( vaddr / PAGE_SIZE );
+  unsigned int offset = vaddr & 0xFFF;
+  ptentry_t *ptentry = PAGE_TO_PTENTRY( page );
+  unsigned int frame = ptentry->frame;
+  int hit = 0;
+  if ((ptentry->valid)){
+    hit = 1;
+    if (( ptentry->page != 0 ) && ( ptentry->op < op )) {
+      protection_fault( vaddr, op );
+      return -1;
+    }
+    *paddr = (frame << 12) + offset; 
+  }
+  return hit;
 }
   
 
@@ -578,7 +612,9 @@ int pt_demand_page( unsigned int pid, unsigned int vaddr, unsigned int *paddr, u
   
   /* compute new physical addr */
   *paddr = FALSE;     /* Task #1(c) */
-  
+  unsigned int offset = vaddr & 0xFFF;
+  unsigned int pfn = ptentry->frame;
+  *paddr = (pfn << 12) + offset; 
   return 0;
 }
 
@@ -643,6 +679,16 @@ int pt_alloc_frame( unsigned int pid, unsigned int page, frame_t *f, unsigned in
 {
   /* Task #1(b) */
 
+  ptentry->valid = 1;
+  ptentry->ref = 0;
+  ptentry->dirty = 0;
+  ptentry->op = op;
+  f->valid = 1;
+  f->lru = 0;
+  f->page = page;
+  ptentry->frame = f->frame;
+  ptentry->page = f->page;
+
   return 0;
 }
 
@@ -659,8 +705,18 @@ int pt_alloc_frame( unsigned int pid, unsigned int page, frame_t *f, unsigned in
 
 int kill_process( unsigned int pid )
 {
+  task_t *process = &processes[pid];
+  unsigned int freect=0;  /* Page Table Pages Freed */
+
   /* Task #4 */
-  
+  unsigned int i;
+  for(i = 0; i < sizeof(process->pagetable); i++ ){
+    if (process->pagetable[i].pte_page){
+      freect += 1;
+    }
+  }
+  free(process->pagetable);
+  fprintf(out, "kp %d %d\n", pid, freect);  
   return 0;
 }
 
